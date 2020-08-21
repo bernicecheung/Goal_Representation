@@ -1,0 +1,1099 @@
+---
+title: "FYP_Pilot2_dataAnalysis"
+author: "Bernice Cheung"
+date: "5/05/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(stringr)
+library(knitr)
+library(lme4)
+library(nFactors)
+library(corrplot)
+library(janitor)
+library(kableExtra)
+```
+
+load data: 209 subjects, with 864 goals are included in the following analysis
+```{r}
+goalRating_long_R <- read.csv("./output/goalRating_long_R.csv",stringsAsFactors = F)
+
+indivDiffDf <- read.csv("./output/indivDiffDf.csv",stringsAsFactors = F)
+
+goalDf_sum_wide <- read.csv("./output/goalDf_wide.csv",stringsAsFactors = F)
+```
+
+# Data Screening for goal representation assessment
+
+### Missing data
+
+Check the number of missing data per variable, and below is the top 5 variables. Missing data is rare for all variables
+```{r}
+# check the number of "I'm not sure" responses per varialbe
+totalGoal <- nrow(goalRating_long_R)/35
+
+goalRating_long_R %>%
+  filter(is.na(rating)) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent)) %>%
+  head(5)
+  
+```
+
+### The "I'm not sure" response
+
+"construal_level","approach_avoidance" and "attainment_maintenance" question have an option for "I'm not sure" because they ask subjects to categorilize their goals.  
+
+around 5% of the goals had "I'm not sure" as the response. <p style="color:orange">The modification for construal level question seemed to be sucessful! </p>
+```{r}
+# check the number of "I'm not sure" responses per varialbe
+goalRating_long_R %>%
+  filter(rating == 99) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent))
+```
+
+around 3.3% participants select the "I'm not sure" option for construal level for more than once. 
+```{r}
+# get the number of total subject
+totalSub <- nrow(indivDiffDf)
+
+# check the percentage of participants who selected "I'm not sure" for construal level more than once
+goalRating_long_R %>%
+  filter(rating == 99 & variable == "construal_level") %>%
+  tabyl(id) %>%
+  filter(n >1) %>%
+  nrow()/totalSub
+```
+
+### The "not specified" response  
+
+temporal_duration, frequency and end_state_specificity question have an option for "not specified" because they ask about features that may not be applicable to all goals.  
+
+The end state specificity is not applicable to around 17% of the goals 
+```{r}
+# check the number of "not specified" responses per varialbe
+goalRating_long_R %>%
+  filter(rating == 999) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent))
+```
+
+### Transform all special cases to NAs
+
+All "I'm not sure" and "not specified" responses will be treated as missing data. 
+
+```{r}
+# transform 99 & 999 to NAs
+goalRating_long_R <- goalRating_long_R %>% 
+  mutate(rating = replace(rating, rating == 99 | rating == 999, NA))
+```
+
+### The number of claimed goals
+
+Descriptive on the number of goals subject claimed to have prior to listing them 
+```{r}
+describe(goalDf_sum_wide$total_goal)
+```
+
+```{r}
+breaks = (1:15)
+goalDf_sum_wide %>% 
+  ggplot(aes(x = total_goal)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=breaks) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of claimed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+
+The percentage of subjects who claimed having more than 5 goals: 24.4% 
+```{r}
+length(goalDf_sum_wide$total_goal[goalDf_sum_wide$total_goal>5])/totalSub
+```
+
+Descriptive on the number of goals participants actual listed
+```{r}
+describe(goalDf_sum_wide$listNum)
+```
+
+```{r}
+breaks <- (1:5)
+goalDf_sum_wide %>% 
+  ggplot(aes(x = listNum)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=seq(1, 5, by = 1)) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of listed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+   
+   
+number of people who listed 1 goal: 1
+```{r}
+length(goalDf_sum_wide$listNum[goalDf_sum_wide$listNum == 1])
+```
+
+descriptvie on the differences between the number of claimed goals and listed goals
+```{r}
+goalDf_sum_wide <-goalDf_sum_wide %>%
+  mutate(diffNum = total_goal - listNum)
+
+describe(goalDf_sum_wide$diffNum)
+
+breaks <- (-2:10)
+goalDf_sum_wide %>% 
+  ggplot(aes(x = diffNum)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=breaks) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of claimed goals - listed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+
+percentage of people who listed more goals than they claimed: 11.5%
+```{r}
+length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum <0])/totalSub *100
+```
+
+percentage of people who listed less goals than they claimed: 26.8%
+```{r}
+length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum >0])/totalSub *100
+```
+
+Even if both the median and the mad of the difference is 0, around 37% of the participants either had to pick 5 out of all of their goals or came up some goals on the spot. Need to be aware of the priming or the order effect. 
+
+# Goal Representation Ratings
+
+### Descriptive stats
+```{r}
+# descriptive stats for each variable 
+goalRating_long_R %>%
+  dplyr::select(variable, rating) %>%
+  group_by(variable) %>%
+  summarize(mean = mean(rating, na.rm = TRUE),
+            sd = sd(rating, na.rm = TRUE), 
+            n = n(),
+            min = min(rating, na.rm = TRUE),
+            max = max(rating, na.rm = TRUE),
+            skew = skew(rating, na.rm = T), 
+            kurtosi = kurtosi(rating, na.rm = T)
+            ) %>%
+arrange(skew)
+# order based on their skewness 
+#kable(varDf[order(varDf$skew),])
+```
+
+The approach_avoidance has very little variance (most people rated their goals as definately approach goals). After changing the anchors for both the attractiveness variables, their distributions are similar to other variables such as important and ideal_motivation. This time "control" is the most positively skewed variable other than approach_avoidance.  
+
+<p style="color:orange">Should we change the approach_avoidance to ordinal?  </p>
+```{r fig.width = 10, fig.height=10, warning=FALSE}
+# histograme for each dimension
+goalRating_long_R %>%
+  ggplot(aes(x = rating)) +
+    geom_histogram(fill   = "orange",
+                   colour = "black",
+                   alpha  = .6) +
+    facet_wrap(~variable, nrow = 7)
+```
+
+
+### correlational matrix across all variables
+
+"pairwise.complete.obs" is used for generating correlational matrix.The correlations make sense
+```{r fig.height=20, fig.width=20}
+# transform the long format to short format
+goalDf_wide <- goalRating_long_R %>% spread (variable, rating)
+
+# generate a correlational matrix
+corrM_all <- goalDf_wide %>% 
+  dplyr :: select(advancement:visibility) %>% 
+  cor(use = "pairwise.complete.obs")
+
+# visualization
+corrplot(corrM_all, method = "circle",number.cex = .7, order = "AOE", addCoef.col = "black",type = "upper",col= colorRampPalette(c("midnightblue","white", "orange"))(200))
+```
+
+### Variance Partition
+
+Only the 30 variables for goal representation are included. Only around 7% of the variance is on the between subject level. 
+
+```{r}
+# subset the long format dataset for only the 30 goal representation variable
+goal_striving <- c("initial_time_R", "advancement", "urgency", "effort", "commitment")
+goalDf_R_long <- goalRating_long_R[!goalRating_long_R$variable %in% goal_striving,]
+
+# generate a multilevel model with subject as the random intercept
+mlm <-lmer(rating ~ variable + (1|id), data = goalDf_R_long)
+
+# calculate the variance partition coefficient and transform to ICC
+VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(icc=vcov/sum(vcov)) %>%
+  dplyr :: select(grp, icc)
+
+Raw <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Raw=vcov/sum(vcov)) %>%
+  dplyr :: select(Raw)
+```
+
+# Exploritory Factor Analysis
+
+### Data transformation 
+
+27 varialbes are included. Ordinal variables are not included: "temporal_duration" & "end_state_specificity" and "frequency"
+
+```{r}
+# Exclude the 5 varialbes related to goal striving progress
+goalDf_R_wide <- goalDf_wide[,!names(goalDf_wide) %in% goal_striving]
+
+# Exclude ordinal variables: temporal_duration & end_state_specificity and frequency and other columns with irrelevent data
+goal_ordinal <- c("temporal_duration", "end_state_specificity_R", "frequency_R")
+goalDf_EFA <- goalDf_R_wide[,!names(goalDf_R_wide) %in% goal_ordinal]
+goalDf_EFA <- subset(goalDf_EFA, select = affordance : visibility)
+
+# Generate a correlational matrix 
+corrM_raw <- cor(goalDf_EFA, use = "pairwise")
+```
+
+### Evaluate the number of factors to extract
+
+Both the Very Simple Structure evaluation and parallel analysis recommend 5 factors. There are 7 factors have an eigen value > 1. Therefore, models with 5, 6, and 7 factors will be explored 
+```{r}
+# use Very Simple Structure criterion
+vss(corrM_raw, n = 10, rotate = "promax", diagonal = FALSE, fm = "minres", 
+n.obs=854,plot=TRUE,title="Very Simple Structure",use="pairwise",cor="cor")
+```
+
+```{r}
+# Use the Scree plot to identify the number of factors have Eigenvalues >1 and the output from the Parallel analysis
+
+ev <- eigen(corrM_raw)
+ap <- parallel(subject=nrow(goalDf_EFA),var=ncol(goalDf_EFA),
+  rep=100,cent=.05)
+nS <- nScree(x=ev$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS)
+```
+
+### Extract factors
+
+Extract number of factors based on the suggestions above. Because we expect factors to be correlated with each other, we use "promax" rotation. 
+```{r}
+# extract 5 factors
+fa_raw_5 <-fa(r=corrM_raw, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+#fa.sort(fa_raw_5)
+
+# extract 6 factors
+fa_raw_6 <-fa(r=corrM_raw, nfactors=6,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+
+# extract 7 factors
+fa_raw_7 <-fa(r=corrM_raw, nfactors=7,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+#fa.sort(fa_raw_7)
+```
+
+### Compare loadings for each model
+
+#### 5 factors
+
+```{r}
+fa.diagram(fa_raw_5)
+```
+
+#### 6 factors
+```{r}
+fa.diagram(fa_raw_6)
+```
+
+#### 7 factors
+```{r}
+fa.diagram(fa_raw_7)
+```
+
+### Compare model fit & complexity
+```{r}
+# generate a dataframe 
+fa_fitDf <- data.frame(factors = c(5,6,7),
+                        chi = c(fa_raw_5$chi,fa_raw_6$chi,fa_raw_7$chi),
+                        BIC = c(fa_raw_5$BIC,fa_raw_6$BIC,fa_raw_7$BIC),
+                        fit = c(fa_raw_5$fit,fa_raw_6$fit,fa_raw_7$fit),
+                        RMSEA = c(fa_raw_5$RMSEA[1],fa_raw_6$RMSEA[1],fa_raw_7$RMSEA[1]),
+                       cumVar = c(max(fa_raw_5$Vaccounted[3,]), max(fa_raw_6$Vaccounted[3,]),max(fa_raw_7$Vaccounted[3,])),
+                        complexity = c(mean(fa_raw_5$complexity),mean(fa_raw_6$complexity),mean(fa_raw_7$complexity)))
+
+fa_fitDf
+```
+
+The most parsimonious model is pretty interpretable. However, more than 1/3 of the variables are clustered on the first factor. This may not be ideal when we explore between subject level variance. The model with 7 factors seems to load (less cross loading) better and explain a little more variance. However, the interfactor correlation may be too high. In order to expand the exploration into the factor variance, I'll go with 7 factors for now. The additional 2 factors are attractiveness and visibility    
+
+Another issue to consider is the mix of unipolar and bipolar. Among the 27 numeric variables, we have 10 bipolar variables: are social desirability, clarity, controllability, all measures about motivations, commonality. They load on different factors on both models, so it may not be a huge issue.  
+
+### Final model: 7 Factors
+Compared to the 7 factor model we saw on April 30th with 854 goals, after adding 10 more goals, "external importance" and "control" loaded with the last factor. "External importance" is loaded pretty evenlly across importance, ought and visibility (0.34, 0.35, 0.37). Control is positively loaded with measuability (0.28) and negatively loaded with visibility (-0.36). The last factor is difficult to interpret in the current model. 
+```{r fig.width=10}
+# organize loadings
+loadings <- fa.sort(fa_raw_7)$loadings
+loadings <- as.data.frame(unclass(loadings))
+colnames(loadings) <-  c("importance", "ought", "measuarability", "attractiveness", "commonality", "attainability", "external factor")
+loadings$Variables <- rownames(loadings)
+loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
+colOrder <- c("importance", "ought", "measuarability", "attractiveness", "commonality", "attainability", "external factor")
+rowOrder <- rev(rownames(loadings))
+loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
+loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
+
+# Visualization
+ggplot(loadings.m, aes(Variables, abs(Loading), fill=Loading)) + 
+  facet_wrap(~ Factor, nrow=1) + #place the factors in separate facets
+  geom_bar(stat="identity") + #make the bars
+  coord_flip() + #flip the axes so the test names can be horizontal  
+  #define the fill color gradient: blue=positive, red=negative
+  scale_fill_gradient2(name = "Loading", 
+                       high = "orange", mid = "white", low = "midnightblue", 
+                       midpoint=0, guide="colourbar") +
+  ylab("Loading Strength") + #improve y-axis label
+  ggtitle("Loadings for 7 factors") + 
+  theme_bw(base_size=10)
+```
+
+
+### Alternative model: 5 Factors
+```{r}
+# visualization
+loadings <- fa.sort(fa_raw_5)$loadings
+loadings <- as.data.frame(unclass(loadings))
+colnames(loadings) <- c("importance", "ought", "measurability", "attainability", "commonality")
+loadings$Variables <- rownames(loadings)
+loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
+colOrder <- c("importance", "ought", "measurability", "attainability", "commonality")
+rowOrder <- rev(rownames(loadings))
+loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
+loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
+
+ggplot(loadings.m, aes(Variables, abs(Loading), fill=Loading)) + 
+  facet_wrap(~ Factor, nrow=1) + #place the factors in separate facets
+  geom_bar(stat="identity") + #make the bars
+  coord_flip() + #flip the axes so the test names can be horizontal  
+  #define the fill color gradient: blue=positive, red=negative
+  scale_fill_gradient2(name = "Loading", 
+                       high = "orange", mid = "white", low = "midnightblue", 
+                       midpoint=0, guide="colourbar") +
+  ylab("Loading Strength") + #improve y-axis label + 
+  ggtitle("Loadings for 5 factors") + 
+  theme_bw(base_size=10)
+
+```
+
+interfactor correlation: 
+correlation between attractiveness & importance, commonality & importance and ought & commonality are high
+```{r}
+fa_raw_7$Phi %>% 
+  as.data.frame() %>% 
+  dplyr::rename(importance = MR1, ought = MR2, attractiveness = MR6, measuarability = MR3, commonality = MR7, attainability = MR5, external_factor = MR4) %>%
+  round(.,2) %>%
+  remove_rownames() %>%
+  mutate(factor = colnames(.)) %>%
+  select(factor, everything()) %>%
+  kable(format = "html", escape = F, caption = "Interfactor Correlation") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+
+```
+
+# Refined EFA with dropped items
+
+### drop items
+drop appoach_avoidance_R & attainment_maintainance_R
+```{r}
+# regenerate the correlation matrix after dropping the itmes
+goalDf_EFA_new <- goalDf_EFA %>% select(-attainment_maintenance_R, -approach_avoidance_R)
+
+# Generate a correlational matrix 
+corrM_new <- cor(goalDf_EFA_new, use = "pairwise")
+```
+
+### evaluate the number of factors
+```{r}
+# use Very Simple Structure criterion
+psych::nfactors(corrM_new, n = 10, rotate = "promax", diagonal = FALSE, fm = "minres", 
+n.obs=854,plot=TRUE,title="Very Simple Structure",use="pairwise",cor="cor")
+```
+
+```{r}
+# Use the Scree plot to identify the number of factors have Eigenvalues >1 and the output from the Parallel analysis
+
+ev <- eigen(corrM_new)
+ap <- parallel(subject=nrow(goalDf_EFA_new),var=ncol(goalDf_EFA_new),
+  rep=100,cent=.05)
+nS <- nScree(x=ev$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS)
+```
+
+### Extract factors
+```{r}
+# extract 5 factors
+fa_raw_5 <-fa(r=corrM_new, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+#fa.sort(fa_raw_5)
+
+# extract 6 factors
+fa_raw_6 <-fa(r=corrM_new, nfactors=6,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+
+# extract 7 factors
+fa_raw_7 <-fa(r=corrM_new, nfactors=7,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+#fa.sort(fa_raw_7)
+```
+
+
+### Compare loadings for each model
+
+#### 5 factors
+
+```{r}
+fa.diagram(fa_raw_5)
+```
+
+### 6 factors
+```{r}
+fa.diagram(fa_raw_6)
+```
+
+
+```{r fig.width=10}
+# organize loadings
+loadings <- fa.sort(fa_raw_7)$loadings
+loadings <- as.data.frame(unclass(loadings))
+colnames(loadings) <-  c("importance", "ought", "measuarability", "attractiveness", "commonality", "attainability", "external factor")
+loadings$Variables <- rownames(loadings)
+loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
+colOrder <- c("importance", "ought", "measuarability", "attractiveness", "commonality", "attainability", "external factor")
+rowOrder <- rev(rownames(loadings))
+loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
+loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
+
+# Visualization
+ggplot(loadings.m, aes(Variables, abs(Loading), fill=Loading)) + 
+  facet_wrap(~ Factor, nrow=1) + #place the factors in separate facets
+  geom_bar(stat="identity") + #make the bars
+  coord_flip() + #flip the axes so the test names can be horizontal  
+  #define the fill color gradient: blue=positive, red=negative
+  scale_fill_gradient2(name = "Loading", 
+                       high = "orange", mid = "white", low = "midnightblue", 
+                       midpoint=0, guide="colourbar") +
+  ylab("Loading Strength") + #improve y-axis label
+  ggtitle("Loadings for 7 factors") + 
+  theme_bw(base_size=10)
+```
+
+
+# Factor scores
+
+### Generate factors scores using simple weights (0 & 1)
+
+Generate the factor score based on the mean 
+```{r}
+factorScoreDf <- goalDf_R_wide %>%
+  mutate(difficulty = 8 - difficulty,
+         control = 8 - control) %>%
+  mutate(Importance = rowMeans(select(.,instrumentality, ideal_motivation, connectedness, meaningfulness, identified_motivation, importance, construal_level),na.rm = T),
+         Ought = rowMeans(select(., ought_motivation, external_motivation , introjected_motivation), na.rm = T),
+         Attractiveness = rowMeans(select(., attractiveness_achievement, attractiveness_progress, intrinsic_motivation), na.rm = T),
+         Measurability = rowMeans(select(., measurability , clarity , specificity , approach_avoidance_R), na.rm = T),
+         Commonality = rowMeans(select(., commonality , social_desirability, basic_needs), na.rm = T),
+         Attainability = rowMeans(select(., difficulty , attainability , affordance), na.rm = T),
+         External_factor = rowMeans(select(., visibility , attainment_maintenance_R, control,external_importance), na.rm = T)) %>%
+  select(id, list_goal = listNum, claim_goal = total_goal, goal_order = goal, Importance, Ought, Attractiveness, Measurability, Commonality, Attainability, External_factor)
+```
+
+### variation partition on factor scores
+
+```{r}
+# Importance 
+mlm <-lmer(Importance ~ 1 + (1|id), data = factorScoreDf)
+
+Importance <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Importance=vcov/sum(vcov)) %>%
+  dplyr :: select(Importance)
+
+# Ought 
+mlm <-lmer(Ought ~ 1 + (1|id), data = factorScoreDf)
+
+Ought <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Ought=vcov/sum(vcov)) %>%
+  dplyr :: select(Ought)
+
+# Attractiveness 
+mlm <-lmer(Attractiveness ~ 1 + (1|id), data = factorScoreDf)
+
+Attractiveness <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Attractiveness=vcov/sum(vcov)) %>%
+  dplyr :: select(Attractiveness)
+
+# Measurability 
+mlm <-lmer(Measurability ~ 1 + (1|id), data = factorScoreDf)
+
+Measurability <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Measurability=vcov/sum(vcov)) %>%
+  dplyr :: select(Measurability)
+
+# Commonality 
+mlm <-lmer(Commonality ~ 1 + (1|id), data = factorScoreDf)
+
+Commonality <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Commonality=vcov/sum(vcov)) %>%
+  dplyr :: select(Commonality)
+
+# Attainability 
+mlm <-lmer(Attainability ~ 1 + (1|id), data = factorScoreDf)
+
+Attainability <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Attainability=vcov/sum(vcov)) %>%
+  dplyr :: select(Attainability)
+
+# External_factor 
+mlm <-lmer(External_factor ~ 1 + (1|id), data = factorScoreDf)
+
+External_factor <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(External_factor=vcov/sum(vcov)) %>%
+  dplyr :: select(External_factor)
+
+# combine the outputs into one data frame
+factorScore_icc <- data.frame("variation" = c("between subject", "within subject"))
+factorScore_icc <- bind_cols(factorScore_icc, Importance, Ought,Attractiveness, Measurability,Commonality, Attainability, External_factor, Raw)
+
+# visualization
+factorV <- factorScore_icc %>% gather(-variation, key = factor, value = ICC)
+ggplot(factorV, aes(fill=variation, y=ICC, x=factor)) + 
+  geom_bar(position="stack", stat="identity", alpha = .8) +
+  scale_fill_manual(values=c("dark blue", "orange")) + 
+  ggtitle("ICC output")+ 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+### The correlations between factor scores and goal progress variables
+
+This correlation matrix shows us that most factors are positively correlated with goal progress measures. goal order has a weak correlation with some factor scores (Measurability, Ought)
+```{r fig.height=10, fig.width=10}
+# combine goal level data
+goalLevelDf <- cbind(select(factorScoreDf, "goal_order" : "External_factor"), goalDf_wide[,c("advancement", "commitment", "effort", "urgency", "initial_time_R")])
+
+# generate a correlational matrix 
+corrM_goalLevel <- cor(goalLevelDf,use = "pairwise")
+res1 <- cor.mtest(goalLevelDf, conf.level = .95)
+
+# visualization
+corrplot(corrM_goalLevel, method = "circle",number.cex = .7, order = "AOE", addCoef.col = "black",type = "upper",col= colorRampPalette(c("midnightblue","white", "orange"))(200),p.mat = res1$p, sig.level = .2, tl.col = c("black", "darkorange1", "darkorange1", "darkorange1", "midnightblue", "darkorange1", "midnightblue","midnightblue","darkorange1", "midnightblue","darkorange1","midnightblue","darkorange1"))
+```
+
+### subject level aggregated factor scores 
+
+```{r}
+# calculate the average score for each factor within each subject
+subjectDf_factor <- aggregate(. ~ id, data = factorScoreDf, mean)
+
+# calculate the sd for each factor wihtin each subject
+subjectDf_factor_sd <- aggregate(. ~ id, data = factorScoreDf, sd) %>% select(-list_goal, -claim_goal)
+subjectDf_factor_sd <- subjectDf_factor %>% select(id, list_goal, claim_goal) %>%
+  left_join(subjectDf_factor_sd, by = "id")
+
+```
+
+# Mahalanobis distance
+
+This session is for calculaing pair-wise distance between goals within each subject. Because the dimensions are not orthogonal, we use Mahalanobis distance to estimate the distance across all dimensions.
+
+### pair-wise distance
+
+We use the covariance matrix across all goal ratings to calculate pair-wise distance. Subjects who only have 1 goal are excluded from this analysis 
+
+```{r}
+# set a function for calculating pairwise distiance
+mahalanobisFun <- function(df, cov) { 
+  MD <- combn(nrow(df), 2, function(x) mahalanobis(as.matrix(df[x[1],]), center = as.matrix(df[x[2],]), cov = cov))
+  return(tryCatch(MD, error=function(e) NULL))
+}
+```
+
+Exclude subjects with only one goal
+```{r}
+# exclude subjects with only one goal
+id_oneGoal <- goalDf_wide$id[goalDf_wide$listNum ==1]
+factorScoreDf_clean <- factorScoreDf %>% filter(!id %in% id_oneGoal) %>% select(-list_goal, -claim_goal, -goal_order)
+
+# split the dataset by IDs and then get rid off the ID column
+splitDf <- split( factorScoreDf_clean, f = factorScoreDf_clean$id)
+#splitDf <- split( factorScoreDf, f = factorScoreDf$id)
+splitDf <- lapply(splitDf, function(x) subset(x, select = -id))
+
+# get the covariance matrix on factor scores across all goals
+factor_cov <- cov(subset(factorScoreDf_clean, select = -id))
+#factor_cov <- cov(subset(factorScoreDf, select = -id))
+
+# apply the distance function to each subject
+output <- lapply(splitDf, function(x) mahalanobisFun(x, factor_cov))
+
+```
+
+Average number of pairs per subject: 7. 15 subjects only have 1 pair. 
+```{r}
+# extract distance values
+distance_M <- unlist(output)
+
+# extract the number of pairs per subject
+pairNum <- lapply(output, function(x) length(as.vector(x)))
+pairNum <- unlist(pairNum)
+mean(pairNum)
+
+# generate a pairwise data frame
+id <- unique(factorScoreDf_clean$id)
+id_pair <- unlist(mapply(rep, id, pairNum))
+
+# pairId <- unlist(mapply(seq,1,pairNum))
+
+pairDf_M <- data.frame("subject_id" = id_pair,
+                     "distance_M" = distance_M)
+```
+
+### descriptive
+The distance is negatively skewed.  
+
+The pair of goals with the least distance is "To get better grades", "To exercise more"; The pair of goals with the most distance is "My first goal is to get my college degree on time", "My fourth goal is to be more present in everyday life and to stop worrying about things I cannot control".
+
+```{r, warning=FALSE}
+# descriptive of all pairwise distance
+describe(pairDf_M$distance_M)
+
+pairDf_M %>% ggplot(aes(x = distance_M)) +
+    geom_histogram(fill   = "orange",
+                   colour = "black",
+                   alpha  = .6)
+```
+
+### variance partition
+Around 37% of the variance in distance is on between subject level
+```{r}
+# generate a multilevel model with subject as the random intercept
+mlm <-lmer(distance_M ~ 1 + (1|subject_id), data = pairDf_M)
+
+# calculate the variance partition coefficient and transform to ICC
+VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(icc=vcov/sum(vcov)) %>%
+  dplyr :: select(grp, icc)
+```
+
+### subject-level distance (mean & sd)
+
+```{r, warning=FALSE}
+# calculate mean distance per subject
+distDf_perSub_M <- pairDf_M %>%
+  group_by(subject_id) %>%
+  mutate(distMean = mean(distance_M),
+         distSd = sd(distance_M)) %>%
+  dplyr :: select(-distance_M)
+
+distDf_perSub_M <- distDf_perSub_M[!duplicated(distDf_perSub_M$subject_id),]
+
+# descriptive of subject-level mean distance
+describe(distDf_perSub_M$distMean)
+
+distDf_perSub_M %>% ggplot(aes(x = distMean)) +
+    geom_histogram(fill   = "orange",
+                   colour = "black",
+                   alpha  = .6)
+
+# descriptive of subject-level distance sd
+describe(distDf_perSub_M$distSd)
+
+distDf_perSub_M %>% ggplot(aes(x = distSd)) +
+    geom_histogram(fill   = "orange",
+                   colour = "black",
+                   alpha  = .6)
+```
+
+# subject level correlations
+
+### Correlations between distance and average factor scores
+
+Both the average and variance of the distance are negatively correlated with most of the average factor scores, indicating that subjects with goals that are on average more important, common, externally motivated and attractive perceive all their goals in a more similar way.  
+```{r fig.height=10, fig.width=10}
+subjectDf <- left_join(subjectDf_factor, distDf_perSub_M, by = c("id" = "subject_id")) %>%
+  select(-goal_order)
+
+# generate a correlational matrix 
+corrM_factorMean <- cor(subjectDf[,-1],use = "pairwise")
+res1 <- cor.mtest(subjectDf[,-1], conf.level = .95)
+p_value <- as.data.frame(t(res1$p[c(10,11),3:9]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_factorMean[c(10,11),3:9])) %>%
+  round(.,2) %>%
+  mutate(factor_mean = row.names(.)) %>%
+  select(factor_mean, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distMean = cell_spec(distMean, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    distSd = cell_spec(distSd, "html", color = ifelse(V2 < 0.05, "darkorange", "black"))
+  ) %>%
+  select(-V1,-V2) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center")
+
+```
+
+### Correlations between distance and factor scores variance (sd)
+
+7 factors contribute roughly equally to the average degree and variance of the distance 
+```{r fig.height=10, fig.width=10}
+# combine subject level data frame (individual differences, variance in factor scores, mean and sd in distance)
+subjectDf_sd <- left_join(subjectDf_factor_sd, distDf_perSub_M, by = c("id" = "subject_id")) %>%
+  select(-goal_order)
+
+# generate a correlational matrix 
+corrM_factorSd <- cor(subjectDf_sd[,-1],use = "pairwise")
+res1 <- cor.mtest(subjectDf_sd[,-1], conf.level = .95)
+p_value <- as.data.frame(t(res1$p[c(10,11),3:9]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_factorSd[c(10,11),3:9])) %>%
+  round(.,2) %>%
+  mutate(factor_sd = row.names(.)) %>%
+  select(factor_sd, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distMean = cell_spec(distMean, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    distSd = cell_spec(distSd, "html", color = ifelse(V2 < 0.05, "darkorange", "black"))
+  ) %>%
+  select(-V1,-V2) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center")
+```
+
+### Correlations between distance and individual measures
+
+Neither the average nor the variance of the distance show clear correlations with individual measures. The number of claimed goals is positively correlate with distance variance but the number of listed goals doesn't have the same relationship. Some subscales from the "Goal orientation" scale and the "Contingencies of Self-Worth Scale" correlate with distance but the relationship is very weak. 
+```{r fig.height=10, fig.width=10}
+subjectDf <- left_join(indivDiffDf, distDf_perSub_M, by = c("id" = "subject_id"))
+subjectDf <- subjectDf_factor %>%
+  select(id, list_goal, claim_goal) %>%
+  left_join(subjectDf, by = "id")
+
+# generate a correlational matrix 
+corrM_im <- cor(subjectDf[,-1],use = "pairwise")
+res1 <- cor.mtest(subjectDf[,-1], conf.level = .95)
+p_value <- as.data.frame(t(res1$p[c(24,25),1:23]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_im[c(24,25),1:23])) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distMean = cell_spec(distMean, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    distSd = cell_spec(distSd, "html", color = ifelse(V2 < 0.05, "darkorange", "black"))
+  ) %>%
+  select(-V1,-V2) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+
+```
+### Correlations between average factor scores and individual measures
+
+Attainability positively correlates with agreeableness, conscientiousness, self-efficacy, life engagement, plantfullness, and negatively correlate with neuroticism. Self esteem and subjective well being show similar pattern: positively correlate with attainability and negatively correlate with ought. 
+```{r fig.height=10, fig.width=10}
+subjectDf <- left_join(indivDiffDf, subjectDf_factor, by = "id") %>% select(-goal_order, -id)
+
+# generate a correlational matrix 
+corrM_factorMean_im <- cor(subjectDf,use = "pairwise")
+res1 <- cor.mtest(subjectDf, conf.level = .95)
+p_value <- as.data.frame(t(res1$p[24:30,1:23]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_factorMean_im[24:30,1:23])) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    Importance = cell_spec(Importance, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    Ought = cell_spec(Ought, "html", color = ifelse(V2 < 0.05, "darkorange", "black")),
+    Attractiveness = cell_spec(Attractiveness, "html", color = ifelse(V3 < 0.05, "darkorange", "black")),
+    Measurability = cell_spec(Measurability, "html", color = ifelse(V4 < 0.05, "darkorange", "black")),
+    Commonality = cell_spec(Commonality, "html", color = ifelse(V5 < 0.05, "darkorange", "black")),
+    Attainability = cell_spec(Attainability, "html", color = ifelse(V6 < 0.05, "darkorange", "black")),
+    External_factor = cell_spec(External_factor, "html", color = ifelse(V7 < 0.05, "darkorange", "black")),
+  ) %>%
+  select(-contains("V")) %>%
+  kable(format = "html", escape = F, caption = "Correlations between the average factor scores and individual measures") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+### Correlations between factor score variance (sd) and individual measures
+
+The nubmer of listed goals is correlated with variance in measurability, commonality and attainability, but not with claimed goals. 
+```{r fig.height=10, fig.width=10}
+subjectDf <- left_join(indivDiffDf, subjectDf_factor_sd, by = "id") %>% select(-goal_order, -id)
+
+# generate a correlational matrix 
+corrM_factorSd_im <- cor(subjectDf,use = "pairwise")
+res1 <- cor.mtest(subjectDf, conf.level = .95)
+p_value <- as.data.frame(t(res1$p[24:30,1:23]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_factorSd_im[24:30,1:23])) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    Importance = cell_spec(Importance, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    Ought = cell_spec(Ought, "html", color = ifelse(V2 < 0.05, "darkorange", "black")),
+    Attractiveness = cell_spec(Attractiveness, "html", color = ifelse(V3 < 0.05, "darkorange", "black")),
+    Measurability = cell_spec(Measurability, "html", color = ifelse(V4 < 0.05, "darkorange", "black")),
+    Commonality = cell_spec(Commonality, "html", color = ifelse(V5 < 0.05, "darkorange", "black")),
+    Attainability = cell_spec(Attainability, "html", color = ifelse(V6 < 0.05, "darkorange", "black")),
+    External_factor = cell_spec(External_factor, "html", color = ifelse(V7 < 0.05, "darkorange", "black")),
+  ) %>%
+  select(-contains("V")) %>%
+  kable(format = "html", escape = F, caption = "Correlations between the factor score sd and individual measures") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+### after excluding outliers in distMean(beyond 3 times of sd)
+
+Exclude outliers
+```{r}
+# extract outlier IDs for distMean
+m <- mean(distDf_perSub_M$distMean, na.rm = T)
+sd <- sd(distDf_perSub_M$distMean, na.rm = T)
+
+outlier_mean <- distDf_perSub_M$subject_id[distDf_perSub_M$distMean > m + 3*sd]
+
+# extract outlier IDs for distSd
+m <- mean(distDf_perSub_M$distSd, na.rm = T)
+sd <- sd(distDf_perSub_M$distSd, na.rm = T)
+
+outlier_sd <- distDf_perSub_M$subject_id[distDf_perSub_M$distSd > m + 3*sd]
+```
+
+Correlation between distMean and all other measures
+```{r}
+subjectDf <- left_join(subjectDf_factor, distDf_perSub_M, by = c("id" = "subject_id")) %>%
+  left_join(indivDiffDf, by = "id") %>%
+  filter(! id %in% outlier_mean) %>%
+  select(-id,-goal_order)
+
+# generate a correlational matrix 
+corrM_distMean <- cor(subjectDf,use = "pairwise")
+res1 <- cor.mtest(subjectDf, conf.level = .95)
+
+# extract p value
+p <- res1$p[,10]
+p_value <- as.data.frame(p)
+
+# generate table
+distMean <-corrM_distMean[,"distMean"] 
+meanCorrDf <- as.data.frame(distMean) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distMean = cell_spec(distMean, "html", color = ifelse(p < 0.05, "darkorange", "black"))) %>%
+  select(-p)
+  
+```
+
+Correlation between distSd and all other measures
+```{r}
+subjectDf <- left_join(subjectDf_factor, distDf_perSub_M, by = c("id" = "subject_id")) %>%
+  left_join(indivDiffDf, by = "id") %>%
+  filter(! id %in% outlier_sd) %>%
+  select(-id,-goal_order)
+
+# generate a correlational matrix 
+corrM_distSd <- cor(subjectDf,use = "pairwise")
+res1 <- cor.mtest(subjectDf, conf.level = .95)
+
+# extract p value
+p <- res1$p[,11]
+p_value <- as.data.frame(p)
+
+# generate table
+distSd <-corrM_distMean[,"distSd"] 
+sdCorrDf <- as.data.frame(distSd) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distSd = cell_spec(distSd, "html", color = ifelse(p < 0.05, "darkorange", "black"))) %>%
+  select(-p)
+  
+```
+
+Correlations between distance and other subject level measures after excluding the outliers
+```{r}
+left_join(meanCorrDf, sdCorrDf, by = "measures") %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+# explore the effect of goal listing task
+
+Comparing people who were able to listed all their goals vs. those who had to choose 5 or less out of all their goals. 
+
+### Differences in distance across 3 different groups
+
+Seperate subjects into 3 groups (list = claimed; list < claimed; list > claimed)
+```{r}
+# extract ID numbers
+id_claimMore <- unique(goalDf_sum_wide$id[goalDf_sum_wide$diffNum > 0])
+id_same <- unique(goalDf_sum_wide$id[goalDf_sum_wide$diffNum == 0])
+id_listMore <- unique(goalDf_sum_wide$id[goalDf_sum_wide$diffNum < 0])
+
+# assign group
+distDf_perSub_M <- distDf_perSub_M %>%
+  mutate(group = case_when(
+    subject_id %in% id_claimMore ~ "claimMore",
+    subject_id %in% id_same ~ "same",
+    subject_id %in% id_listMore ~ "listMore"
+  ))
+```
+
+Compare the average and variance of distance across 3 groups
+```{r}
+
+distDf_perSub_M %>%
+  group_by(group) %>%
+  summarise(
+    count = n(),
+    distMean = mean(distMean, na.rm = TRUE),
+    distSd = mean(distSd, na.rm = TRUE)
+  ) %>%
+  kable(format = "html", escape = F, caption = "Group mean of the average distance and distance variance") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+```{r}
+distDf_perSub_M %>%
+  ggplot(aes(group, distMean)) +
+  geom_violin() +
+  stat_summary(fun=mean, geom="point", shape=23, size=2) +
+  ggtitle("distMean")
+
+distDf_perSub_M %>%
+  ggplot(aes(group, distSd)) +
+  geom_violin() +
+  stat_summary(fun=mean, geom="point", shape=23, size=2) +
+  ggtitle("distSd")
+  
+```
+
+The average distance doesn't differenciate across groups
+```{r}
+res.aov <- aov(distMean ~ group, data = distDf_perSub_M)
+summary(res.aov)
+```
+
+People who were able to list all their goals have more variance in their pair-wise distance
+```{r}
+res.aov <- aov(distSd ~ group, data = distDf_perSub_M)
+summary(res.aov)
+```
+
+### Explore correlation between distance and individual measures only among people in the same group
+
+Similar to those using all subjects, the subject-level relationship is weak. Plantfulness is positively correlated with average distance. 
+```{r}
+subjectDf <- left_join(indivDiffDf, distDf_perSub_M, by = c("id" = "subject_id"))
+subjectDf <- subjectDf_factor %>%
+  select(id, list_goal, claim_goal) %>%
+  left_join(subjectDf, by = "id") %>%
+  filter(id %in% id_same) %>%
+  select(-id,-group)
+
+# generate a correlational matrix
+corrM_im <- cor(subjectDf,use = "pairwise")
+res1 <- cor.mtest(subjectDf, conf.level = .95)
+p_value <- as.data.frame(t(res1$p[c(24,25),1:23]))
+
+# generate and present results in a table
+as.data.frame(t(corrM_im[c(24,25),1:23])) %>%
+  round(.,2) %>%
+  mutate(measures = row.names(.)) %>%
+  select(measures, everything()) %>%
+  bind_cols(p_value) %>%
+  mutate(
+    distMean = cell_spec(distMean, "html", color = ifelse(V1 < 0.05, "darkorange", "black")),
+    distSd = cell_spec(distSd, "html", color = ifelse(V2 < 0.05, "darkorange", "black"))
+  ) %>%
+  select(-V1,-V2) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+
+```
+
+### Differences in each factor score across group
+
+Factor scores are not different across groups. The range in the same group extended to the lower end for some factor. 
+```{r}
+subjectDf_factor <- subjectDf_factor %>%
+  mutate(group = case_when(
+    id %in% id_claimMore ~ "claimMore",
+    id %in% id_same ~ "same",
+    id %in% id_listMore ~ "listMore"
+  ))
+
+subjectDf_factor %>%
+  group_by(group) %>%
+  summarise(
+    Importance = mean(Importance, na.rm = TRUE),
+    Ought = mean(Ought, na.rm = TRUE),
+    Attractiveness = mean(Attractiveness, na.rm = TRUE),
+    Measurability = mean(Measurability, na.rm = TRUE),
+    Commonality = mean(Commonality, na.rm = TRUE),
+    Attainability = mean(Attainability, na.rm = TRUE),
+    External_factor = mean(External_factor, na.rm = TRUE),
+  ) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+   
+```
+
+```{r, fig.height=8, fig.width=8}
+
+subjectDf_factor %>%
+  gather(Importance: External_factor, key = "factor", value = "factorScore") %>%
+  ggplot(aes(group, factorScore)) +
+  geom_violin() +
+  stat_summary(fun=mean, geom="point", shape=23, size=2) +
+  facet_wrap(~factor, nrow = 4)
+
+```
+
