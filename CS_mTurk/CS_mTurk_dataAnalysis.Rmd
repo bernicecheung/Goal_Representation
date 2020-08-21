@@ -1,0 +1,429 @@
+---
+title: "CS_mTurk_dataAnalysis"
+author: "Bernice Cheung"
+date: "8/21/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(stringr)
+library(knitr)
+library(lme4)
+library(nFactors)
+library(corrplot)
+library(janitor)
+library(kableExtra)
+library(GPArotation)
+```
+
+load data: 224 subjects, with 791 goals are included in the following analysis
+```{r}
+goalRating_long_R <- read.csv("./inputs/goalRating_long_R.csv",stringsAsFactors = F)
+
+indivDiffDf <- read.csv("./inputs/indivDiffDf.csv",stringsAsFactors = F)
+
+goalDf_sum_wide <- read.csv("./inputs/goalDf_wide.csv",stringsAsFactors = F)
+```
+
+# Data Screening for goal representation assessment
+
+### Missing data
+
+Check the number of missing data per variable, and below is the top 5 variables. Missing data is rare for all variables
+```{r}
+# check the number of "I'm not sure" responses per variable
+totalGoal <- nrow(goalRating_long_R)/35
+
+goalRating_long_R %>%
+  filter(is.na(rating)) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent)) %>%
+  head(5)
+```
+
+### The "I'm not sure" response
+
+"construal_level","approach_avoidance" and "attainment_maintenance" question have an option for "I'm not sure" because they ask subjects to categorize their goals.  
+
+around 2% of the goals had "I'm not sure" as the response. 
+```{r}
+# check the number of "I'm not sure" responses per varialbe
+goalRating_long_R %>%
+  filter(rating == 99) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent))
+```
+
+### The "not specified" response  
+
+temporal_duration, frequency and end_state_specificity question have an option for "not specified" because they ask about features that may not be applicable to all goals.  
+
+The end state specificity is not applicable to around 9% of the goals 
+```{r}
+# check the number of "not specified" responses per varialbe
+goalRating_long_R %>%
+  filter(rating == 999) %>%
+  tabyl(variable) %>%
+  mutate(percent = n/totalGoal) %>%
+  arrange(desc(percent))
+```
+
+### Transform all special cases to NAs
+
+All "I'm not sure" and "not specified" responses will be treated as missing data. 
+
+```{r}
+# transform 99 & 999 to NAs
+goalRating_long_R <- goalRating_long_R %>% 
+  mutate(rating = replace(rating, rating == 99 | rating == 999, NA))
+```
+
+### The number of claimed goals
+
+Descriptive on the number of goals subject claimed to have prior to listing them (in the SONA study, hte median of claimed goal is 4)
+```{r}
+describe(goalDf_sum_wide$total_goal)
+```
+
+Visualize the number of claimed goals per subject after excluding the extreme value (> 50) (we have 1 claimed 50, 1 claimed 200)
+```{r}
+breaks = (1:20)
+goalDf_sum_wide %>% 
+  filter(total_goal < 50) %>%
+  ggplot(aes(x = total_goal)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=breaks) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of claimed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+The percentage of subjects who claimed having more than 5 goals: 6.25% 
+```{r}
+# get the number of total subject
+totalSub <- nrow(indivDiffDf)
+
+length(goalDf_sum_wide$total_goal[goalDf_sum_wide$total_goal>5])/totalSub
+```
+
+Descriptive on the number of goals participants actual listed (in the SONA study, the mean is 4.13)
+```{r}
+describe(goalDf_sum_wide$listNum)
+```
+```{r}
+breaks <- (1:5)
+goalDf_sum_wide %>% 
+  ggplot(aes(x = listNum)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=seq(1, 5, by = 1)) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of listed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+
+   
+number of people who listed 1 goal: 15 (SONA study: 1)
+```{r}
+length(goalDf_sum_wide$listNum[goalDf_sum_wide$listNum == 1])
+```
+
+descriptive on the differences between the number of claimed goals and listed goals (after exclude the 2 extreme cases)
+```{r}
+goalDf_sum_wide <-goalDf_sum_wide %>%
+  mutate(diffNum = total_goal - listNum)
+
+goalDf_sum_wide_clean <- goalDf_sum_wide %>%filter(total_goal < 50)
+  
+describe(goalDf_sum_wide_clean$diffNum)
+
+breaks <- (-4:15)
+goalDf_sum_wide_clean %>% 
+  ggplot(aes(x = diffNum)) + 
+  scale_x_continuous(labels=scales::comma(breaks, accuracy = 1), breaks=breaks) + 
+  geom_histogram(fill = "orange", 
+                 colour = "black",
+                 binwidth = 1) + 
+  labs(x="Number of claimed goals - listed goals", y="# of participants") +
+  theme_classic(base_size = 18) 
+```
+
+percentage of people who listed more goals than they claimed: 22.3%
+```{r}
+length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum <0])/totalSub *100
+```
+
+percentage of people who listed less goals more than they claimed: 7.5%
+```{r}
+length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum >0])/totalSub *100
+```
+
+Compared to the SONA study, more people listed more goals than they claimed, which may indecate a priming effect of the goal listing task.
+
+# Goal Representation Ratings
+
+### Descriptive stats
+```{r}
+# descriptive stats for each variable 
+goalRating_long_R %>%
+  dplyr::select(variable, rating) %>%
+  group_by(variable) %>%
+  summarize(mean = mean(rating, na.rm = TRUE),
+            sd = sd(rating, na.rm = TRUE), 
+            n = n(),
+            min = min(rating, na.rm = TRUE),
+            max = max(rating, na.rm = TRUE),
+            skew = skew(rating, na.rm = T), 
+            kurtosi = kurtosi(rating, na.rm = T)
+            ) %>%
+  arrange(skew) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center")
+# order based on their skewness 
+#kable(varDf[order(varDf$skew),])
+```
+
+The trend showed in these histograms are very similar to the SONA study
+```{r fig.width = 10, fig.height=10, warning=FALSE}
+# histograms for each dimension
+goalRating_long_R %>%
+  ggplot(aes(x = rating)) +
+    geom_histogram(fill   = "orange",
+                   colour = "black",
+                   alpha  = .6) +
+    facet_wrap(~variable, nrow = 7)
+```
+
+### correlational matrix across all variables
+
+"pairwise.complete.obs" is used for generating correlational matrix.The correlations make sense
+```{r fig.height=20, fig.width=20}
+# transform the long format to short format
+goalDf_wide <- goalRating_long_R %>% spread (variable, rating)
+
+# generate a correctional matrix
+corrM_all <- goalDf_wide %>% 
+  dplyr :: select(advancement:visibility) %>% 
+  cor(use = "pairwise.complete.obs")
+
+# visualization
+corrplot(corrM_all, method = "circle",number.cex = .7, order = "AOE", addCoef.col = "black",type = "upper",col= colorRampPalette(c("midnightblue","white", "orange"))(200))
+```
+### Variance Partition
+
+Only the 31 variables for goal representation are included. Only around 8.6% of the variance is on the between subject level. 
+
+```{r}
+# subset the long format dataset for only the 31 goal representation variable
+goal_striving <- c("commitment", "urgency", "effort", "advancement", "initial_time_R", "regret", "procrastination", "failure")
+goalDf_R_long <- goalRating_long_R[!goalRating_long_R$variable %in% goal_striving,]
+
+# generate a multilevel model with subject as the random intercept
+mlm <-lmer(rating ~ variable + (1|MTurkCode), data = goalDf_R_long)
+
+# calculate the variance partition coefficient and transform to ICC
+VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(icc=vcov/sum(vcov)) %>%
+  dplyr :: select(grp, icc)
+
+Raw <- VarCorr(mlm) %>%
+  as_tibble() %>%
+  mutate(Raw=vcov/sum(vcov)) %>%
+  dplyr :: select(Raw)
+```
+
+### Data transformation 
+
+26 variables are included. Ordinal variables are not included: "temporal_duration" & "end_state_specificity" and "frequency"; appoach_avoidance_R & attainment_maintainance_R are also dropped because these 2 variables are more relevant to the phrasing/content of a goal than the perception of a goal. This step is consistent with the SONA study
+
+```{r}
+# Exclude the 8 variables related to goal striving progress
+goalDf_R_wide <- goalDf_wide[,!names(goalDf_wide) %in% goal_striving]
+
+# Exclude 5 goal representation variables and other columns with irrelevant data
+goal_exclude <- c("temporal_duration", "end_state_specificity_R", "frequency_R", "attainment_maintenance_R", "approach_avoidance_R")
+goalDf_EFA <- goalDf_R_wide[,!names(goalDf_R_wide) %in% goal_exclude]
+goalDf_EFA <- subset(goalDf_EFA, select = affordance : visibility)
+
+# Generate a correctional matrix 
+corrM_raw <- cor(goalDf_EFA, use = "pairwise")
+```
+
+### evaluate the number of factors
+```{r}
+# use Very Simple Structure criterion
+res_vss <- psych :: nfactors(corrM_raw, n = 10, rotate = "promax", diagonal = FALSE, fm = "minres", 
+n.obs=791,title="Very Simple Structure",use="pairwise",cor="cor")
+
+# select useful parameters and organize them into a table
+cbind(1:10, res_vss$map) %>%
+  as.tibble() %>%
+  rename(., factor = V1, map = V2) %>%
+  cbind(., res_vss$vss.stats) %>%
+  select(factor, map, fit, complex, eChisq, SRMR, eCRMS, eBIC, eRMS) %>%
+  kable(format = "html", escape = F, caption = "VSS output after dropping 2 variables") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+```{r}
+# Use the Scree plot to identify the number of factors have Eigenvalues >1 and the output from the Parallel analysis
+
+ev <- eigen(corrM_raw)
+ap <- parallel(subject=nrow(goalDf_EFA),var=ncol(goalDf_EFA),
+  rep=100,cent=.05)
+nS <- nScree(x=ev$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS)
+```
+### Extract factors
+
+Extract number of factors based on the suggestions above. Because we expect factors to be correlated with each other, we use "promax" rotation. 
+```{r}
+# extract 4 factors
+fa_raw_4 <-fa(r=corrM_raw, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+
+# extract 5 factors
+fa_raw_5 <-fa(r=corrM_raw, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+
+# extract 6 factors
+fa_raw_6 <-fa(r=corrM_raw, nfactors=6,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+
+```
+
+### Compare loadings for each model
+
+#### 4 factors
+```{r}
+fa.diagram(fa_raw_4)
+```
+
+#### 5 factors
+
+```{r}
+fa.diagram(fa_raw_5)
+```
+
+#### 6 factors
+```{r}
+fa.diagram(fa_raw_6)
+```
+
+#### 5 factors
+
+Compared to the 5 factors yield from the SONA study, the factor "measurability" is combined with "attainability", and the factor ideal is new. It's composed by item "ideal_motivation" (used to be in factor "importance"), "Control"("measurability"), "meaningfulness"("importance")
+```{r}
+# visualization
+loadings <- fa.sort(fa_raw_5)$loadings
+loadings <- as.data.frame(unclass(loadings))
+colnames(loadings) <- c("ought", "importance", "attainability", "commonality", "ideal")
+loadings$Variables <- rownames(loadings)
+loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
+colOrder <- c("ought", "importance", "attainability", "commonality", "ideal")
+rowOrder <- rev(rownames(loadings))
+loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
+loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
+
+ggplot(loadings.m, aes(Variables, abs(Loading), fill=Loading)) + 
+  facet_wrap(~ Factor, nrow=1) + #place the factors in separate facets
+  geom_bar(stat="identity") + #make the bars
+  coord_flip() + #flip the axes so the test names can be horizontal  
+  #define the fill color gradient: blue=positive, red=negative
+  scale_fill_gradient2(name = "Loading", 
+                       high = "orange", mid = "white", low = "midnightblue", 
+                       midpoint=0, guide="colourbar") +
+  ylab("Loading Strength") + #improve y-axis label + 
+  ggtitle("Loadings for 5 factors") + 
+  theme_bw(base_size=10)
+```
+
+The 5 factor loadings from the SONA study: 
+
+![SONA 5-factor](./inputs/SONA_1_5factor.png)
+
+#### interfactor correlation
+```{r}
+fa_raw_5$Phi %>% 
+  as.tibble() %>% 
+  dplyr::rename(ought = MR1, importance = MR2, attainability = MR3, commonality = MR4, ideal = MR5) %>%
+  round(.,2) %>%
+  remove_rownames() %>%
+  mutate(factor = colnames(.)) %>%
+  select(factor, everything()) %>%
+  kable(format = "html", escape = F, caption = "Interfactor Correlation") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+### 6 factors
+
+#### factor loadings
+
+Compared to the 6 factors yield from the SONA study, the "instrumentality" is replaced by the factor "ideal". 
+```{r}
+# visualization
+loadings <- fa.sort(fa_raw_6)$loadings
+loadings <- as.data.frame(unclass(loadings))
+colnames(loadings) <- c("ought", "importance", "measurability", "commonality", "ideal", "attainability")
+loadings$Variables <- rownames(loadings)
+loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
+colOrder <- c("ought", "importance", "measurability", "commonality", "ideal", "attainability")
+rowOrder <- rev(rownames(loadings))
+loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
+loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
+
+ggplot(loadings.m, aes(Variables, abs(Loading), fill=Loading)) + 
+  facet_wrap(~ Factor, nrow=1) + #place the factors in separate facets
+  geom_bar(stat="identity") + #make the bars
+  coord_flip() + #flip the axes so the test names can be horizontal  
+  #define the fill color gradient: blue=positive, red=negative
+  scale_fill_gradient2(name = "Loading", 
+                       high = "orange", mid = "white", low = "midnightblue", 
+                       midpoint=0, guide="colourbar") +
+  ylab("Loading Strength") + #improve y-axis label + 
+  ggtitle("Loadings for 6 factors") + 
+  theme_bw(base_size=10)
+```
+The 6 factor loadings from the SONA study: 
+
+![SONA 6-factor](./inputs/SONA_1_6factor.png)
+#### interfactor correlation
+
+```{r}
+fa_raw_6$Phi %>% 
+  as.tibble() %>% 
+  dplyr::rename(ought = MR1, importance = MR6, measurability = MR3, commonality = MR4, ideal = MR5, attainability = MR2) %>%
+  round(.,2) %>%
+  remove_rownames() %>%
+  mutate(factor = colnames(.)) %>%
+  select(factor, everything()) %>%
+  kable(format = "html", escape = F, caption = "Interfactor Correlation") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+### Compare model fit & complexity
+```{r}
+# generate a dataframe 
+fa_fitDf <- data.frame(factors = c(5,6),
+                        chi = c(fa_raw_5$chi,fa_raw_6$chi),
+                        BIC = c(fa_raw_5$BIC,fa_raw_6$BIC),
+                        fit = c(fa_raw_5$fit,fa_raw_6$fit),
+                        RMSEA = c(fa_raw_5$RMSEA[1],fa_raw_6$RMSEA[1]),
+                       cumVar = c(max(fa_raw_5$Vaccounted[3,]), max(fa_raw_6$Vaccounted[3,])),
+                        complexity = c(mean(fa_raw_5$complexity),mean(fa_raw_6$complexity)))
+
+fa_fitDf
+```
+
+
