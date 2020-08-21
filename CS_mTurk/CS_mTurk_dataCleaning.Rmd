@@ -44,6 +44,7 @@ write.csv(rawDf_cleaned,"./inputs/raw_clean.csv",row.names = F)
 
 # reload the raw cleaned dataframe
 rawDf_cleaned <- read.csv("./inputs/raw_clean.csv",stringsAsFactors = F)
+head(rawDf_cleaned)
 ```
 
 Transform and generate variables
@@ -53,14 +54,14 @@ rawDf_cleaned$Duration <- rawDf_cleaned$Duration..in.seconds./60
 
 # Generate the number of goals subject listed
 list_df <- rawDf_cleaned %>% dplyr::select(contains("goal_list"))
-list_df$MTurkCode <- rawDf_cleaned$MTurkCode
-
-write.csv(list_df, "./outputs/listedGoals.csv", row.names = F)
-
 rawDf_cleaned$listNum <- rowSums(list_df != "")
 
 # Generate the duration per goal
 rawDf_cleaned$timePerGoal <- rawDf_cleaned$Duration/rawDf_cleaned$listNum
+
+# export all listed goals for data screening
+list_df$MTurkCode <- rawDf_cleaned$MTurkCode
+write.csv(list_df, "./outputs/listedGoals.csv", row.names = F)
 ```
 
 Transform the data relevant to goal rating into a long format dataframe
@@ -171,16 +172,13 @@ missDf %>% ggplot(aes(missPerc)) +
   geom_histogram(fill= color,
                    colour = "black",
                    alpha  = .8)
-
-
-hist(missDf$missPerc)
-head(missDf)
-head(goalRating_long)
 ```
 
 The maximum percentage of missing is below 6%. No subject is excluded based on this critiria. 
 
-Exclude subjects if they were identified based on any of the exclusion Criteria. Based on all 4 exclusion criteria, 42 participants should be excluded. 
+### Organize subjects who are excluded
+
+Exclude subjects if they were identified based on any of the exclusion Criteria. Based on all 5 exclusion criteria, 35 participants should be excluded. 
 
 ```{r}
 # aggregate id and relevant info.
