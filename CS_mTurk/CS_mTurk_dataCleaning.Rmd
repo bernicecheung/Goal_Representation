@@ -1,0 +1,333 @@
+---
+title: "CS_mTurk_dataCleaning"
+author: "Bernice Cheung"
+date: "8/20/2020"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+# Load and prep data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(stringr)
+library(knitr)
+library(lme4)
+library(nFactors)
+library(corrplot)
+library(janitor)
+library(kableExtra)
+```
+
+Raw data was directly downloaded from Qualtric on 8/20/20. A filter that only includes participants who met the inclusion criteria, consented and completed the survey was applied prior to downloading it. 289 participants are included in this raw dataset. 
+
+```{r load data}
+# load raw data
+rawDf <- read.csv("./rawData/Goal Representation-mTurk-CrossSection_August 20, 2020_23.53.csv",stringsAsFactors = F)
+```
+
+Organize the raw dataframe
+```{r organize raw}
+# delete the first two rows of labels and questions 
+rawDf_cleaned <- rawDf[-c(1,2),]
+
+# write the data without the 2 rows
+write.csv(rawDf_cleaned,"./inputs/raw_clean.csv",row.names = F)
+
+# reload the raw cleaned dataframe
+rawDf_cleaned <- read.csv("./inputs/raw_clean.csv",stringsAsFactors = F)
+```
+
+Transform and generate variables
+```{r}
+# convert the duration in seconds to minutes
+rawDf_cleaned$Duration <- rawDf_cleaned$Duration..in.seconds./60
+
+# Generate the number of goals subject listed
+list_df <- rawDf_cleaned %>% dplyr::select(contains("goal_list"))
+list_df$MTurkCode <- rawDf_cleaned$MTurkCode
+
+write.csv(list_df, "./outputs/listedGoals.csv", row.names = F)
+
+rawDf_cleaned$listNum <- rowSums(list_df != "")
+
+# Generate the duration per goal
+rawDf_cleaned$timePerGoal <- rawDf_cleaned$Duration/rawDf_cleaned$listNum
+```
+
+Transform the data relevant to goal rating into a long format dataframe
+```{r}
+# subset goal rating related dataset 
+goalRating <- subset(rawDf_cleaned, select = G1_1:G39_5)
+goalRating <- bind_cols(goalRating, rawDf_cleaned[,c("MTurkCode","listNum", "total_goal")])
+
+# transform the dataset to long format
+goalRating_long <- goalRating %>% gather(variable, rating, G1_1:G39_5)
+
+# transform existing question number to the corresponding variable name and goal number
+
+goalRating_long$goal <- str_sub(goalRating_long$variable,-1,-1)
+
+variableName <- c("construal_level", "temporal_duration", "frequency", "specificity", "end_state_specificity", "approach_avoidance", "attainment_maintenance", "measurability", "importance", "meaningfulness", "instrumentality", "connectedness", "attractiveness_achievement", "attractiveness_progress", "social_desirability", "difficulty", "affordance", "attainability", "clarity", "control", "external_motivation", "introjected_motivation", "identified_motivation", "intrinsic_motivation", "ought_motivation", "ideal_motivation", "basic_needs", "commonality", "visibility", "external_importance", "conflict")
+progressName <- c("commitment", "urgency", "effort", "advancement", "initial_time", "regret", "procrastination", "failure")
+nameList <- c(variableName, progressName)
+questionNum <- paste0("G", 1:39, "_")
+
+nameDf <- data.frame("question_number" = questionNum,
+                     "variable_name" = nameList)
+
+for (idx in 1: nrow(nameDf)){
+  goalRating_long$variable[grepl(nameDf$question_number[idx],goalRating_long$variable)] <- as.character(nameDf$variable_name[idx])
+}
+
+# get rid off the NAs for questions corresponding to goals that the subjects didn't list 
+goalRating_long <- goalRating_long[goalRating_long$goal <= goalRating_long$listNum,]
+```
+
+# Exclude participants
+
+### Exclusion Criteria 1: bots response & repetitive response
+
+All listed goals were viewed by Bernice and responses from bots and repetitive responses were identified. 
+
+```{r}
+id_bots <- c(11385, 34736,75119,69558,72969,48831,63082,99680,53772,26999,87954,14942,37853,43774,21971,34681,13891,99529,48560,60936,37448,60650)
+```
+
+22 subjects were screened out. Screening results are showed on ./outputs/listedGoals.csv (grey indicates bots responses, orange indicates repetitive responses)
+
+### Exclusion Criteria 2:Task Duration
+
+Descriptive and histogram on timePerGoal (task duration / number of listed goals) for all participants
+```{r,warning=FALSE,message=FALSE}
+# Descriptive on duration
+describe(rawDf_cleaned$timePerGoal)
+
+# Histogram
+colors <- c(rep("red",2), rep("orange",28))
+rawDf_cleaned %>% ggplot(aes(timePerGoal)) + geom_histogram(fill   = colors,
+                   colour = "black",
+                   alpha  = .8)
+```
+
+The exclusion criteria for the SONA study was less than 5min per goal. Based on this histogram, I use 4 min per goal as the threshold. 
+
+```{r}
+id_durationShort <- rawDf_cleaned[rawDf_cleaned$timePerGoal <4,c("MTurkCode", "Duration","timePerGoal", "listNum")]
+```
+
+### Exclusion Criteria 3: Attention check questions
+
+The SONA version has 3 attention check questions. But because we didn't include the individual difference measures in the present one, it only has one attention check quesiton. 
+```{r}
+id_check <- rawDf_cleaned[rawDf_cleaned$check1 !=17, c("MTurkCode", "Duration","timePerGoal", "listNum")]
+```
+
+8 subject failed at the attention check question
+
+### Exclusion Criteria 4: Repetitive responses
+
+```{r}
+# extract columns with likert scale ratings 
+ratingDf <- dplyr::select(rawDf_cleaned, "G1_1":"P45_4_3")
+
+# extract the max number of repetitive response in a row
+variation <- apply(ratingDf,1,function(x) rle(x))
+variation.length <-unlist(lapply(variation,function(x) max(x$lengths)))
+describe(variation.length)
+hist(variation.length, col = c(rep("orange", 6), rep("red", 1)))
+rawDf_cleaned$invariance_max <- variation.length
+
+```
+
+The histogram doesn't show a clear cut off line. For the SONA study, our threshold is 20. No subject is excluded based on this criteria.
+
+### Exclusion Criteria 5: Missing data in the goal rating session
+
+Because subjects listed various number of goals, the total number of questions in the goal rating session for a given subject is calculated by the number of goal listed times the number of question per goal (39 questions). The proportion of missing data in the goal rating session is then calculated and outliers are visual inspected through a histogram. In the SONA study subjects who missed 10% is excluded (marked in red on the histogram)
+
+```{r,warning=FALSE,message=FALSE, cache=FALSE}
+# calculate the percentage of missing data 
+missDf <- goalRating_long %>%
+  group_by(MTurkCode) %>%
+  summarise(missNum = sum(is.na(rating)),
+            totalNum = mean(listNum) * 39,
+            missPerc = ((missNum/totalNum) * 100)) 
+
+# record the missing proportion
+rawDf_cleaned$missPerc <- missDf$missPerc
+
+# visualize the percentage of missing data
+color <- c(rep("orange", 29), "red")
+missDf %>% ggplot(aes(missPerc)) + 
+  geom_histogram(fill= color,
+                   colour = "black",
+                   alpha  = .8)
+
+
+hist(missDf$missPerc)
+head(missDf)
+head(goalRating_long)
+```
+
+The maximum percentage of missing is below 6%. No subject is excluded based on this critiria. 
+
+Exclude subjects if they were identified based on any of the exclusion Criteria. Based on all 4 exclusion criteria, 42 participants should be excluded. 
+
+```{r}
+# aggregate id and relevant info.
+id_candidate <- unique(c(id_bots, id_durationShort$MTurkCode, id_check$MTurkCode))
+candidateDf <- rawDf_cleaned %>% dplyr::select(c("MTurkCode", "Duration", "timePerGoal","listNum", "check1", "invariance_max", "missPerc")) %>% filter(MTurkCode %in% id_candidate)
+```
+
+Below is the relevant info for those who are subject to exclusions only based on attention check question.
+```{r}
+# subjects that are excluded based on other criteria
+id_candidate2 <- unique(c(id_bots, id_durationShort$MTurkCode))
+
+# check relevant info. for those who are subject to exclusion only based on attention check qeustion
+candidateDf %>%
+  filter(!MTurkCode %in% id_candidate2) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
+
+Based only on the info showed in these table, these 6 subjects seem responsible except failing at the attention check questions. I don't think it's reasonable to exclude them at this point. 
+
+29 subject will be excluded based on their listed goals being judged as random and task duration
+
+clean datasets
+```{r}
+# exclude subject from both the wide and long format datasets 
+cleanedDf <- rawDf_cleaned[! rawDf_cleaned$MTurkCode %in% id_candidate2,]
+goalRating_long_Clean <- goalRating_long[! goalRating_long$MTurkCode %in% id_candidate2, ]
+```
+
+# Data transformation
+
+#### The "I'm not sure" response   
+
+"construal_level","approach_avoidance" and "attainment_maintenance" question have an option for "I'm not sure" because they ask subjects to categorize their goals. The corresponding numeric value is 8. These values are transformed to 99 in order to be inspected. 
+
+```{r}
+goalRating_long_R <- goalRating_long_Clean
+
+# transform the "I'm not sure" response to 99
+goalRating_long_R <- goalRating_long_R %>%
+  mutate(rating = replace(rating,
+                          rating == 8 & variable %in% c("construal_level","approach_avoidance","attainment_maintenance"),
+                          99))
+
+```
+
+#### The "not specified" response
+
+temporal_duration, frequency and end_state_specificity question have an option for "not specified" because they ask about features that may not be applicable to all goals. The corresponding numeric value for each question is specified in the script. These values are transformed to 999 in order to be inspected.
+
+```{r}
+# transform the "not specified" response to 999
+goalRating_long_R <- goalRating_long_R %>%
+  mutate(rating = replace(rating,
+                          rating == 5 & variable == "temporal_duration", 999)) %>%
+  mutate(rating = replace(rating, rating == 3 & variable == "frequency", 999)) %>%
+  mutate(rating = replace(rating, rating == 4 & variable == "end_state_specificity", 999))
+
+```
+
+### Reverse code 
+
+Based on the correlation matrix, I decided to reverse code 5 variable: "approach_avoidance", "initial_time", "end_state_specificity", "frequency", "attainment_maintenance". The decision is based on their correlations with other variables. Before recording, they are negatively correlated with most of the variable. 
+
+```{r}
+goalRating_long_R$rating[goalRating_long_R$variable == "approach_avoidance"] <- recode(goalRating_long_R$rating[goalRating_long_R$variable == "approach_avoidance"], '1' = 7, '2' = 6, '3' = 5, '5' = 3, '6' = 2, '7' = 1)
+goalRating_long_R$variable[goalRating_long_R$variable == "approach_avoidance"] <- "approach_avoidance_R"
+
+goalRating_long_R$rating[goalRating_long_R$variable == "initial_time"] <- recode(goalRating_long_R$rating[goalRating_long_R$variable == "initial_time"], '1' = 8, '2' = 7, '3' = 6, '4' = 5 , '5' = 4, '6' = 3, '7' = 2, '8' = 1)
+goalRating_long_R$variable[goalRating_long_R$variable == "initial_time"] <- "initial_time_R"
+
+goalRating_long_R$rating[goalRating_long_R$variable == "end_state_specificity"] <- recode(goalRating_long_R$rating[goalRating_long_R$variable == "end_state_specificity"], '1' = 3, '2' = 2, '3' = 1)
+goalRating_long_R$variable[goalRating_long_R$variable == "end_state_specificity"] <- "end_state_specificity_R"
+
+goalRating_long_R$rating[goalRating_long_R$variable == "frequency"] <- recode(goalRating_long_R$rating[goalRating_long_R$variable == "frequency"], '1' = 2, '2' = 1)
+goalRating_long_R$variable[goalRating_long_R$variable == "frequency"] <- "frequency_R"
+
+goalRating_long_R$rating[goalRating_long_R$variable == "attainment_maintenance"] <- recode(goalRating_long_R$rating[goalRating_long_R$variable == "attainment_maintenance"], '1' = 7, '2' = 6, '3' = 5, '5' = 3, '6' = 2, '7' = 1)
+goalRating_long_R$variable[goalRating_long_R$variable == "attainment_maintenance"] <- "attainment_maintenance_R"
+```
+
+# Compute individual differences measures
+
+The scale composite scores and subscale composite scores are generated based on the scoring keys. A subject will be remove from analysis for a given scale if this person missed more than 1/3 of the items. The composite score for the scale will be NA for that subject. 
+
+### COVID-Stress
+
+Data screening: range is normal, and no subject need to be excluded due to missing data
+```{r}
+# extract relevant data
+COVID_items <- cleanedDf[,grepl("COVID",names(cleanedDf))]
+
+# check range
+range(COVID_items, na.rm = T)
+
+# check the number of missing data per subject
+COVID_NA <- rowSums(is.na(COVID_items))
+
+# check if there's any subject miss 1/3 of the items
+which(COVID_NA > 1/3 * ncol(COVID_items))
+```
+
+Scoring: all items are recoded from 1-5 to 0-4. 
+```{r}
+# adjust the range 
+COVID_R <- COVID_items - 1
+
+# compute the means for each sub scale
+COVID_scores <- COVID_R %>%
+  mutate(danger_mean = rowMeans(dplyr :: select(., COVID.1_1, COVID.1_2,COVID.1_3,COVID.1_4, COVID.1_5, COVID.1_6), na.rm = TRUE),
+         ses_mean = rowMeans(dplyr :: select(., COVID.1_7, COVID.1_8,COVID.1_9,COVID.1_10, COVID.1_11, COVID.1_12), na.rm = TRUE),
+         xeno_mean = rowMeans(dplyr :: select(., COVID.1_13, COVID.1_14,COVID.1_15,COVID.1_16, COVID.1_17, COVID.1_18), na.rm = TRUE),
+         contam_mean = rowMeans(dplyr :: select(., COVID.1_19, COVID.1_20,COVID.1_21,COVID.1_22, COVID.1_23, COVID.1_24), na.rm = TRUE),
+         trauma_mean = rowMeans(dplyr :: select(., COVID.2_1, COVID.2_2,COVID.2_3,COVID.2_4, COVID.2_5, COVID.2_6), na.rm = TRUE),
+         check_mean = rowMeans(dplyr :: select(., COVID.3_1, COVID.3_2,COVID.3_3,COVID.3_4, COVID.3_5, COVID.3_6), na.rm = TRUE)) %>%
+  dplyr :: select(danger_mean, ses_mean, xeno_mean,contam_mean, trauma_mean, check_mean)
+
+# check reliability
+alpha(dplyr::select(COVID_R, COVID.1_1, COVID.1_2,COVID.1_3,COVID.1_4, COVID.1_5, COVID.1_6))$total$std.alpha
+alpha(dplyr::select(COVID_R, COVID.1_7, COVID.1_8,COVID.1_9,COVID.1_10, COVID.1_11, COVID.1_12))$total$std.alpha
+alpha(dplyr::select(COVID_R, COVID.1_13, COVID.1_14,COVID.1_15,COVID.1_16, COVID.1_17, COVID.1_18))$total$std.alpha
+alpha(dplyr::select(COVID_R, COVID.1_19, COVID.1_20,COVID.1_21,COVID.1_22, COVID.1_23, COVID.1_24))$total$std.alpha
+alpha(dplyr::select(COVID_R, COVID.2_1, COVID.2_2,COVID.2_3,COVID.2_4, COVID.2_5, COVID.2_6))$total$std.alpha
+alpha(dplyr::select(COVID_R, COVID.3_1, COVID.3_2,COVID.3_3,COVID.3_4, COVID.3_5, COVID.3_6))$total$std.alpha
+```
+
+### combine individual difference measures with demographic
+```{r}
+demoDf <- cleanedDf %>%
+  select(MTurkCode,gender : subjectiveSES)
+
+indivDiffDf <- bind_cols(demoDf, COVID_scores)
+```
+
+# write cleaned datasets
+```{r}
+# cleaned long format dataset for goal ratings
+write.csv(goalRating_long_R,"./inputs/goalRating_long_R.csv", row.names = F)
+
+# cleaned individual difference dataset
+write.csv(indivDiffDf,"./inputs/indivDiffDf.csv", row.names = F)
+
+# cleaned wide format dataset for goal raing summary
+goalDf_wide <- cleanedDf %>%
+  select(MTurkCode,listNum,total_goal)
+
+write.csv(goalDf_wide, "./inputs/goalDf_wide.csv", row.names = F)
+```
+
