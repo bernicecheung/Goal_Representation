@@ -344,7 +344,16 @@ write.csv(indivDiffDf,"./inputs/indivDiffDf.csv", row.names = F)
 # cleaned wide format dataset for goal raing summary
 goalDf_wide <- cleanedDf %>%
   select(MTurkCode,listNum,total_goal)
-
 write.csv(goalDf_wide, "./inputs/goalDf_wide.csv", row.names = F)
+
+# compile and randomize all listed goals for RA rating
+goal_list <- list_df %>%
+  filter(!MTurkCode %in% id_candidate2) %>%
+  select(contains("goal_list")) %>%
+  gather(goal_order, Goals) %>%
+  select(Goals) %>%
+  slice(sample(1:n())) %>%
+  filter(Goals != "")
+write.csv(goal_list, "./outputs/listedGoals.csv", row.names = F)
 ```
 

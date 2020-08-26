@@ -2003,8 +2003,17 @@ write.csv(indivDiffDf,&quot;./inputs/indivDiffDf.csv&quot;, row.names = F)
 # cleaned wide format dataset for goal raing summary
 goalDf_wide &lt;- cleanedDf %&gt;%
   select(MTurkCode,listNum,total_goal)
+write.csv(goalDf_wide, &quot;./inputs/goalDf_wide.csv&quot;, row.names = F)
 
-write.csv(goalDf_wide, &quot;./inputs/goalDf_wide.csv&quot;, row.names = F)</code></pre>
+# compile and randomize all listed goals for RA rating
+goal_list &lt;- list_df %&gt;%
+  filter(!MTurkCode %in% id_candidate2) %&gt;%
+  select(contains(&quot;goal_list&quot;)) %&gt;%
+  gather(goal_order, Goals) %&gt;%
+  select(Goals) %&gt;%
+  slice(sample(1:n())) %&gt;%
+  filter(Goals != &quot;&quot;)
+write.csv(goal_list, &quot;./outputs/listedGoals.csv&quot;, row.names = F)</code></pre>
 </div>
 
 
