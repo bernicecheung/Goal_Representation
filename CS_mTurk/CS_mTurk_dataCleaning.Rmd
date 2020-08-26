@@ -27,7 +27,7 @@ library(janitor)
 library(kableExtra)
 ```
 
-Raw data was directly downloaded from Qualtric on 8/20/20. A filter that only includes participants who met the inclusion criteria, consented and completed the survey was applied prior to downloading it. 289 participants are included in this raw dataset. 
+Raw data was directly downloaded from Qualtric on 8/20/20. A filter that only includes participants who met the inclusion criteria, consented and completed the survey was applied prior to downloading it. 253 participants are included in this raw dataset. 
 
 ```{r load data}
 # load raw data
@@ -44,7 +44,6 @@ write.csv(rawDf_cleaned,"./inputs/raw_clean.csv",row.names = F)
 
 # reload the raw cleaned dataframe
 rawDf_cleaned <- read.csv("./inputs/raw_clean.csv",stringsAsFactors = F)
-head(rawDf_cleaned)
 ```
 
 Transform and generate variables
@@ -52,8 +51,13 @@ Transform and generate variables
 # convert the duration in seconds to minutes
 rawDf_cleaned$Duration <- rawDf_cleaned$Duration..in.seconds./60
 
-# Generate the number of goals subject listed
+# transfer "none" to NAs for subject 58881
 list_df <- rawDf_cleaned %>% dplyr::select(contains("goal_list"))
+
+subjectIdx <- which(rawDf_cleaned$MTurkCode == 58881)
+list_df[75,c(3,4,5)] <-"" 
+
+# Generate the number of goals subject listed
 rawDf_cleaned$listNum <- rowSums(list_df != "")
 
 # Generate the duration per goal
@@ -100,10 +104,15 @@ goalRating_long <- goalRating_long[goalRating_long$goal <= goalRating_long$listN
 All listed goals were viewed by Bernice and responses from bots and repetitive responses were identified. 
 
 ```{r}
-id_bots <- c(11385, 34736,75119,69558,72969,48831,63082,99680,53772,26999,87954,14942,37853,43774,21971,34681,13891,99529,48560,60936,37448,60650)
+id_bots <- c(11385, 34736,75119,69558,48831,63082,99680,53772,26999,87954,14942,37853,43774,21971,74791,34681,13891,99529,48560,60936,37448,60650,48295)
 ```
 
-22 subjects were screened out. Screening results are showed on ./outputs/listedGoals.csv (grey indicates bots responses, orange indicates repetitive responses)
+23 subjects were screened out. Screening results are showed on ./outputs/listedGoals.csv (grey indicates bots responses, orange indicates repetitive responses)
+
+Below is a list of subject whom I'm not sure if should be excluded based on their answers
+```{r}
+id_question <- c(30999, 72969, 76327, 63567)
+```
 
 ### Exclusion Criteria 2:Task Duration
 
@@ -119,7 +128,7 @@ rawDf_cleaned %>% ggplot(aes(timePerGoal)) + geom_histogram(fill   = colors,
                    alpha  = .8)
 ```
 
-The exclusion criteria for the SONA study was less than 5min per goal. Based on this histogram, I use 4 min per goal as the threshold. 
+The exclusion criteria for the SONA study was less than 5min per goal. Based on this histogram, I use 4 min per goal as the threshold. 11 subject met this exclusion criteria
 
 ```{r}
 id_durationShort <- rawDf_cleaned[rawDf_cleaned$timePerGoal <4,c("MTurkCode", "Duration","timePerGoal", "listNum")]
@@ -127,7 +136,7 @@ id_durationShort <- rawDf_cleaned[rawDf_cleaned$timePerGoal <4,c("MTurkCode", "D
 
 ### Exclusion Criteria 3: Attention check questions
 
-The SONA version has 3 attention check questions. But because we didn't include the individual difference measures in the present one, it only has one attention check quesiton. 
+The SONA version has 3 attention check questions. But because we didn't include the individual difference measures in the present one, it only has one attention check question. 
 ```{r}
 id_check <- rawDf_cleaned[rawDf_cleaned$check1 !=17, c("MTurkCode", "Duration","timePerGoal", "listNum")]
 ```
@@ -178,7 +187,7 @@ The maximum percentage of missing is below 6%. No subject is excluded based on t
 
 ### Organize subjects who are excluded
 
-Exclude subjects if they were identified based on any of the exclusion Criteria. Based on all 5 exclusion criteria, 35 participants should be excluded. 
+Exclude subjects if they were identified based on any of the exclusion Criteria. Based on all 5 exclusion criteria, 34 participants should be excluded. 
 
 ```{r}
 # aggregate id and relevant info.
@@ -198,9 +207,16 @@ candidateDf %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
 ```
 
-Based only on the info showed in these table, these 6 subjects seem responsible except failing at the attention check questions. I don't think it's reasonable to exclude them at this point. 
+Based only on the info showed in these table, these 5 subjects seem responsible except failing at the attention check questions. I don't think it's reasonable to exclude them at this point. 
 
 29 subject will be excluded based on their listed goals being judged as random and task duration
+
+below is the relevant info for those whom I'm not sure if should be excluded based on their goals
+```{r}
+questionDf <- rawDf_cleaned %>% dplyr::select(c("MTurkCode", "Duration", "timePerGoal","listNum", "check1", "invariance_max", "missPerc")) %>% filter(MTurkCode %in% id_question) %>%
+  kable(format = "html", escape = F) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F,position = "center",fixed_thead = T)
+```
 
 clean datasets
 ```{r}
@@ -296,7 +312,10 @@ COVID_scores <- COVID_R %>%
          trauma_mean = rowMeans(dplyr :: select(., COVID.2_1, COVID.2_2,COVID.2_3,COVID.2_4, COVID.2_5, COVID.2_6), na.rm = TRUE),
          check_mean = rowMeans(dplyr :: select(., COVID.3_1, COVID.3_2,COVID.3_3,COVID.3_4, COVID.3_5, COVID.3_6), na.rm = TRUE)) %>%
   dplyr :: select(danger_mean, ses_mean, xeno_mean,contam_mean, trauma_mean, check_mean)
+```
 
+check reliability for each subscale: 
+```{r}
 # check reliability
 alpha(dplyr::select(COVID_R, COVID.1_1, COVID.1_2,COVID.1_3,COVID.1_4, COVID.1_5, COVID.1_6))$total$std.alpha
 alpha(dplyr::select(COVID_R, COVID.1_7, COVID.1_8,COVID.1_9,COVID.1_10, COVID.1_11, COVID.1_12))$total$std.alpha
