@@ -28,7 +28,7 @@ library(kableExtra)
 library(GPArotation)
 ```
 
-load data: 224 subjects, with 791 goals are included in the following analysis
+load data: 224 subjects, with 788 goals are included in the following analysis
 ```{r}
 goalRating_long_R <- read.csv("./inputs/goalRating_long_R.csv",stringsAsFactors = F)
 
@@ -44,7 +44,7 @@ goalDf_sum_wide <- read.csv("./inputs/goalDf_wide.csv",stringsAsFactors = F)
 Check the number of missing data per variable, and below is the top 5 variables. Missing data is rare for all variables
 ```{r}
 # check the number of "I'm not sure" responses per variable
-totalGoal <- nrow(goalRating_long_R)/35
+totalGoal <- nrow(goalRating_long_R)/39
 
 goalRating_long_R %>%
   filter(is.na(rating)) %>%
@@ -72,7 +72,7 @@ goalRating_long_R %>%
 
 temporal_duration, frequency and end_state_specificity question have an option for "not specified" because they ask about features that may not be applicable to all goals.  
 
-The end state specificity is not applicable to around 9% of the goals 
+The end state specificity is not applicable to around 10% of the goals 
 ```{r}
 # check the number of "not specified" responses per varialbe
 goalRating_long_R %>%
@@ -94,7 +94,7 @@ goalRating_long_R <- goalRating_long_R %>%
 
 ### The number of claimed goals
 
-Descriptive on the number of goals subject claimed to have prior to listing them (in the SONA study, hte median of claimed goal is 4)
+Descriptive on the number of goals subject claimed to have prior to listing them (in the SONA study, the median of claimed goal is 3)
 ```{r}
 describe(goalDf_sum_wide$total_goal)
 ```
@@ -120,10 +120,11 @@ totalSub <- nrow(indivDiffDf)
 length(goalDf_sum_wide$total_goal[goalDf_sum_wide$total_goal>5])/totalSub
 ```
 
-Descriptive on the number of goals participants actual listed (in the SONA study, the mean is 4.13)
+Descriptive on the number of goals participants actual listed (in the SONA study, the mean is 3.52)
 ```{r}
 describe(goalDf_sum_wide$listNum)
 ```
+
 ```{r}
 breaks <- (1:5)
 goalDf_sum_wide %>% 
@@ -162,7 +163,7 @@ goalDf_sum_wide_clean %>%
   theme_classic(base_size = 18) 
 ```
 
-percentage of people who listed more goals than they claimed: 22.3%
+percentage of people who listed more goals than they claimed: 21.875%
 ```{r}
 length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum <0])/totalSub *100
 ```
@@ -172,7 +173,7 @@ percentage of people who listed less goals more than they claimed: 7.5%
 length(goalDf_sum_wide$diffNum[goalDf_sum_wide$diffNum >0])/totalSub *100
 ```
 
-Compared to the SONA study, more people listed more goals than they claimed, which may indecate a priming effect of the goal listing task.
+Compared to the SONA study, more people listed more goals than they claimed, which may indicate a priming effect of the goal listing task.
 
 # Goal Representation Ratings
 
@@ -210,7 +211,7 @@ goalRating_long_R %>%
 
 ### correlational matrix across all variables
 
-"pairwise.complete.obs" is used for generating correlational matrix.The correlations make sense
+"pairwise.complete.obs" is used for generating correlation matrix.The correlations make sense
 ```{r fig.height=20, fig.width=20}
 # transform the long format to short format
 goalDf_wide <- goalRating_long_R %>% spread (variable, rating)
@@ -225,7 +226,7 @@ corrplot(corrM_all, method = "circle",number.cex = .7, order = "AOE", addCoef.co
 ```
 ### Variance Partition
 
-Only the 31 variables for goal representation are included. Only around 8.6% of the variance is on the between subject level. 
+Only the 31 variables for goal representation are included. Only around 8.4% of the variance is on the between subject level. 
 
 ```{r}
 # subset the long format dataset for only the 31 goal representation variable
@@ -268,11 +269,11 @@ corrM_raw <- cor(goalDf_EFA, use = "pairwise")
 ```{r}
 # use Very Simple Structure criterion
 res_vss <- psych :: nfactors(corrM_raw, n = 10, rotate = "promax", diagonal = FALSE, fm = "minres", 
-n.obs=791,title="Very Simple Structure",use="pairwise",cor="cor")
+n.obs=788,title="Very Simple Structure",use="pairwise",cor="cor")
 
 # select useful parameters and organize them into a table
 cbind(1:10, res_vss$map) %>%
-  as.tibble() %>%
+  as_tibble() %>%
   rename(., factor = V1, map = V2) %>%
   cbind(., res_vss$vss.stats) %>%
   select(factor, map, fit, complex, eChisq, SRMR, eCRMS, eBIC, eRMS) %>%
@@ -293,13 +294,13 @@ plotnScree(nS)
 Extract number of factors based on the suggestions above. Because we expect factors to be correlated with each other, we use "promax" rotation. 
 ```{r}
 # extract 4 factors
-fa_raw_4 <-fa(r=corrM_raw, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+fa_raw_4 <-fa(r=corrM_raw, nfactors=4,n.obs = 788, rotate="promax", SMC=FALSE, fm="minres")
 
 # extract 5 factors
-fa_raw_5 <-fa(r=corrM_raw, nfactors=5,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+fa_raw_5 <-fa(r=corrM_raw, nfactors=5,n.obs = 788, rotate="promax", SMC=FALSE, fm="minres")
 
 # extract 6 factors
-fa_raw_6 <-fa(r=corrM_raw, nfactors=6,n.obs = 854, rotate="promax", SMC=FALSE, fm="minres")
+fa_raw_6 <-fa(r=corrM_raw, nfactors=6,n.obs = 788, rotate="promax", SMC=FALSE, fm="minres")
 
 ```
 
@@ -324,6 +325,10 @@ fa.diagram(fa_raw_6)
 #### 5 factors
 
 Compared to the 5 factors yield from the SONA study, the factor "measurability" is combined with "attainability", and the factor ideal is new. It's composed by item "ideal_motivation" (used to be in factor "importance"), "Control"("measurability"), "meaningfulness"("importance")
+```{r}
+fa.sort(fa_raw_5)
+```
+
 ```{r}
 # visualization
 loadings <- fa.sort(fa_raw_5)$loadings
@@ -371,14 +376,19 @@ fa_raw_5$Phi %>%
 #### factor loadings
 
 Compared to the 6 factors yield from the SONA study, the "instrumentality" is replaced by the factor "ideal". 
+
+```{r}
+fa.sort(fa_raw_6)
+```
+
 ```{r}
 # visualization
 loadings <- fa.sort(fa_raw_6)$loadings
 loadings <- as.data.frame(unclass(loadings))
-colnames(loadings) <- c("ought", "importance", "measurability", "commonality", "ideal", "attainability")
+colnames(loadings) <- c("ought", "importance", "commonality", "attainability", "measurability", "ideal")
 loadings$Variables <- rownames(loadings)
 loadings.m <- loadings %>% gather(-Variables, key = "Factor", value = "Loading")
-colOrder <- c("ought", "importance", "measurability", "commonality", "ideal", "attainability")
+colOrder <- c("ought", "importance", "commonality", "attainability", "measurability", "ideal")
 rowOrder <- rev(rownames(loadings))
 loadings.m<- arrange(mutate(loadings.m,Variables=factor(Variables,leve=rowOrder)),Variables)
 loadings.m<- arrange(mutate(loadings.m,Factor=factor(Factor,leve=colOrder)),Factor)
@@ -403,7 +413,7 @@ The 6 factor loadings from the SONA study:
 ```{r}
 fa_raw_6$Phi %>% 
   as.tibble() %>% 
-  dplyr::rename(ought = MR1, importance = MR6, measurability = MR3, commonality = MR4, ideal = MR5, attainability = MR2) %>%
+  dplyr::rename(ought = MR1, importance = MR2, measurability = MR4, commonality = MR3, ideal = MR6, attainability = MR5) %>%
   round(.,2) %>%
   remove_rownames() %>%
   mutate(factor = colnames(.)) %>%
@@ -426,4 +436,44 @@ fa_fitDf <- data.frame(factors = c(5,6),
 fa_fitDf
 ```
 
+# COVID Related Stress
+
+### descriptives (range: 0-4): 
+
+Danger: 
+```{r}
+describe(indivDiffDf$danger_mean)
+
+hist(indivDiffDf$danger_mean)
+```
+
+SES consequences: 
+```{r}
+describe(indivDiffDf$ses_mean)
+hist(indivDiffDf$ses_mean)
+```
+
+Xenophobia
+```{r}
+describe(indivDiffDf$xeno_mean)
+hist(indivDiffDf$xeno_mean)
+```
+
+Contamination
+```{r}
+describe(indivDiffDf$contam_mean)
+hist(indivDiffDf$contam_mean)
+```
+
+Traumatic stress
+```{r}
+describe(indivDiffDf$trauma_mean)
+hist(indivDiffDf$trauma_mean)
+```
+
+Checking
+```{r}
+describe(indivDiffDf$check_mean)
+hist(indivDiffDf$check_mean)
+```
 
